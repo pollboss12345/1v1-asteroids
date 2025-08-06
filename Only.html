@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>1v1 Asteroids</title>
+  <style>
+    canvas {
+      background: black;
+      display: block;
+      margin: 0 auto;
+    }
+    body {
+      text-align: center;
+      color: white;
+      font-family: sans-serif;
+    }
+  </style>
+</head>
+<body>
+<canvas id="game" width="800" height="600"></canvas>
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const keys = {};
+document.addEventListener('keydown', e => keys[e.code] = true);
+document.addEventListener('keyup', e => keys[e.code] = false);
+
+let gameState = 'title'; // 'title', 'countdown', 'playing', 'gameover'
+let countdown = 3;
+let countdownTimer = 0;
+let winner = null;
+
+// ========== Utility ==========
+function wrap(x, max) {
+  return (x + max) % max;
+}
+
+function distance(a, b) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function angleTo(a, b) {
+  return Math.atan2(b.y - a.y, b.x - a.x);
+}
+
+// ========== Game Classes ==========
+class Ship {
+  constructor(x, y, isAI = false, color = 'white') {
+    this.x = x;
+    this.y = y;
+    this.angle = 0;
+    this.dx = 0;
+    this.dy = 0;
+    this.color = color;
+    this.bullets = [];
+    this.isAI = isAI;
+    this.reload = 0;
+    this.health = 100;
+  }
+
+  update(opponent) {
+    if (this.isAI) {
+      const targetAngle = angleTo(this, opponent);
+      let diff = targetAngle - this.angle;
+      if (diff > Math.PI) diff -= 2 * Math.PI;
+      if (diff < -Math.PI) diff += 2 * Math.PI;
+      if (diff > 0.1) this.angle += 0.03;
+      if (diff < -0.1) this.angle -= 0.03;
+
+      this.dx += Math.cos(this.angle) * 0.05;
+      this.dy += Math.sin(this.angle) * 0.05;
+
+      if (this.reload <= 0 && Math.random() < 0.04) {
+        this.shoot();
+        this.reload = 60;
+      }
+    } else {
+      if (keys['ArrowLeft']) this.angle -= 0.07;
+      if (keys['ArrowRight']) this.angle += 0.07;
+      if (keys['ArrowUp']) {
+        this.dx += Math.cos(this.angle) * 0.1;
+        this.dy += Math.sin(this.angle) * 0.1;
+      }
+      if (keys['Space'] && this.reload <= 0) {
+        this.shoot();
+        this.reload = 20;
+      }
+    }
+
+    this.x = wrap(this.x + this.dx, canvas.width);
+    this.y = wrap(this.y + this.dy, canvas.height);
+    this.dx *= 0.99;
+    this.dy *= 0.99;
+    this.reload--;
+
+    this.bullets = this.bullets.filter(b => b.life > 0);
+    this.bullets.forEach(b => b.update());
+  }
+
+  shoot() {
+    this.bullets.push(new Bullet(this.x, this.y, this.angle, this.color));
+  }
+
+  draw() {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.angle);
+    ctx.strokeStyle = this.color;
+    ctx.beginPath();
+    ctx.moveTo(10, 0);
+    ctx.lineTo(-10, 7);
+    ctx.lineTo(-10, -7);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.restore();
+
+    this.bullets.forEach(b => b.draw());
+
+    // Draw health bar
+    ctx.fillStyle = this.color;
+    ctx.fillRect(this.x - 25, this.y + 15, 50 * (this.health / 100), 5);
+    ctx.strokeStyle = 'white';
+    ctx.strokeRect(this.x - 25, this.y + 15, 50, 5);
+  }
+}
+
+class Bullet {
+  constructor(x, y, angle, color) {
+    this.x = x;
+    this.y = y;
+    this.dx = Math.cos(angle) * 5;
+    this.dy = Math.sin(angle) * 5;
+    this.life = 60;
+    this.color = color;
+  }
+
+  update() {
+    this.x = wrap(this.x + this.dx, canvas.width);
+    this.y = wrap(this.y + this.dy, canvas.height);
+    this.life--;
+  }
+
+  draw() {
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+class Asteroid {
+  constructor() {
+    this.x = Math.random() * canvas.width;
+    this.y = Math.random() * canvas.height;
+    this.dx = (Math.random() - 0.5) * 1.5;
+    this.dy = (Math.random() - 0.5) * 1.5;
+    this.r = 20 + Math.random() * 30;
+  }
+
+  update() {
+    this.x = wrap(this.x + this.dx, canvas.width);
+    this.y = wrap(this.y + this.dy, canvas.height);
+  }
+
+  draw() {
+    ctx.strokeStyle = 'gray';
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+}
+
+// ========== Game Variables ==========
+let player, enemy, asteroids;
+
+function resetGame() {
+  player = new Ship(150, 300, false, 'white');
+  enemy = new Ship(650, 300, true, 'red');
+  asteroids = Array.from({ length: 5 }, () => new Asteroid());
+}
+
+resetGame();
+
+// ========== Game Logic ==========
+function checkHits() {
+  player.bullets.forEach(b => {
+    if (distance(b, enemy) < 15) {
+      enemy.health -= 10;
+      b.life = 0;
+    }
+  });
+  enemy.bullets.forEach(b => {
+    if (distance(b, player) < 15) {
+      player.health -= 10;
+      b.life = 0;
+    }
+  });
+}
+
+function checkWin() {
+  if (player.health <= 0) {
+    winner = 'AI Wins!';
+    gameState = 'gameover';
+    setTimeout(() => gameState = 'title', 3000);
+  }
+  if (enemy.health <= 0) {
+    winner = 'You Win!';
+    gameState = 'gameover';
+    setTimeout(() => gameState = 'title', 3000);
+  }
+}
+
+// ========== Drawing & Main Loop ==========
+function drawTitleScreen() {
+  ctx.fillStyle = 'white';
+  ctx.font = '36px sans-serif';
+  ctx.fillText("1v1 ASTEROIDS", canvas.width / 2 - 130, 200);
+  ctx.font = '20px sans-serif';
+  ctx.fillText("Press ENTER to Start", canvas.width / 2 - 100, 250);
+  if (winner) {
+    ctx.fillText(winner, canvas.width / 2 - 50, 300);
+  }
+}
+
+function drawCountdown() {
+  ctx.fillStyle = 'white';
+  ctx.font = '60px sans-serif';
+  ctx.fillText(countdown, canvas.width / 2 - 20, canvas.height / 2);
+}
+
+function gameLoop() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Background gameplay always running
+  player.update(enemy);
+  enemy.update(player);
+  asteroids.forEach(a => a.update());
+
+  asteroids.forEach(a => a.draw());
+  player.draw();
+  enemy.draw();
+
+  if (gameState === 'title') {
+    drawTitleScreen();
+  } else if (gameState === 'countdown') {
+    let now = Date.now();
+    if (now - countdownTimer > 1000) {
+      countdown--;
+      countdownTimer = now;
+      if (countdown <= 0) {
+        gameState = 'playing';
+      }
+    }
+    drawCountdown();
+  } else if (gameState === 'playing') {
+    checkHits();
+    checkWin();
+  }
+
+  requestAnimationFrame(gameLoop);
+}
+
+document.addEventListener('keydown', e => {
+  if (gameState === 'title' && e.code === 'Enter') {
+    resetGame();
+    countdown = 3;
+    countdownTimer = Date.now();
+    gameState = 'countdown';
+    winner = null;
+  }
+});
+
+gameLoop();
+</script>
+</body>
+</html>
